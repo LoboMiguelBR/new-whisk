@@ -9,6 +9,43 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
+// 🔧 Valores padrão para estilos
+const DEFAULT_OVERLAY_STYLE = {
+  backgroundColor: "#000000",
+  opacity: 0.85,
+  height: 35,
+};
+
+const DEFAULT_TEXT_STYLE = {
+  color: "#FFFFFF",
+  fontSize: 60,
+  fontWeight: "bold",
+  shadowColor: "#000000",
+  shadowBlur: 3,
+  shadowOffsetX: 0,
+  shadowOffsetY: 0,
+};
+
+const DEFAULT_PRICE_STYLE = {
+  color: "#FFD700",
+  fontSize: 90,
+  fontWeight: "bold",
+  shadowColor: "#000000",
+  shadowBlur: 3,
+  shadowOffsetX: 0,
+  shadowOffsetY: 0,
+};
+
+const DEFAULT_CTA_STYLE = {
+  color: "#FFFFFF",
+  fontSize: 40,
+  fontWeight: "bold",
+  shadowColor: "#000000",
+  shadowBlur: 3,
+  shadowOffsetX: 0,
+  shadowOffsetY: 0,
+};
+
 // Função para comprimir imagem
 async function compressImage(buffer: Buffer): Promise<Buffer> {
   try {
@@ -81,35 +118,41 @@ function buildRefinementPrompt(
   ctaStyle: any,
   overlayStyle: any
 ): string {
+  // 🔧 Usar valores padrão se não forem fornecidos
+  const tStyle = titleStyle || DEFAULT_TEXT_STYLE;
+  const pStyle = priceStyle || DEFAULT_PRICE_STYLE;
+  const cStyle = ctaStyle || DEFAULT_CTA_STYLE;
+  const oStyle = overlayStyle || DEFAULT_OVERLAY_STYLE;
+
   return `
 Add professional text overlay at the bottom of the image with a semi-transparent dark background:
 
 OVERLAY SETTINGS:
-- Background Color: ${overlayStyle.backgroundColor}
-- Opacity: ${overlayStyle.opacity}
-- Height: ${overlayStyle.height}% of image
+- Background Color: ${oStyle.backgroundColor}
+- Opacity: ${oStyle.opacity}
+- Height: ${oStyle.height}% of image
 
 TITLE: "${title}"
-- Font: ${titleStyle.fontWeight}, ${titleStyle.fontSize}px
-- Color: ${titleStyle.color}
-- Shadow: blur ${titleStyle.shadowBlur}px, offset (${titleStyle.shadowOffsetX}, ${titleStyle.shadowOffsetY})
-- Shadow Color: ${titleStyle.shadowColor}
+- Font: ${tStyle.fontWeight}, ${tStyle.fontSize}px
+- Color: ${tStyle.color}
+- Shadow: blur ${tStyle.shadowBlur}px, offset (${tStyle.shadowOffsetX}, ${tStyle.shadowOffsetY})
+- Shadow Color: ${tStyle.shadowColor}
 - Position: Top of overlay area
 - Style: Professional, clean sans-serif
 
 PRICE: "${price}"
-- Font: ${priceStyle.fontWeight}, ${priceStyle.fontSize}px
-- Color: ${priceStyle.color}
-- Shadow: blur ${priceStyle.shadowBlur}px, offset (${priceStyle.shadowOffsetX}, ${priceStyle.shadowOffsetY})
-- Shadow Color: ${priceStyle.shadowColor}
+- Font: ${pStyle.fontWeight}, ${pStyle.fontSize}px
+- Color: ${pStyle.color}
+- Shadow: blur ${pStyle.shadowBlur}px, offset (${pStyle.shadowOffsetX}, ${pStyle.shadowOffsetY})
+- Shadow Color: ${pStyle.shadowColor}
 - Position: Middle of overlay area
 - Style: Professional, prominent
 
 CALL TO ACTION: "${cta}"
-- Font: ${ctaStyle.fontWeight}, ${ctaStyle.fontSize}px
-- Color: ${ctaStyle.color}
-- Shadow: blur ${ctaStyle.shadowBlur}px, offset (${ctaStyle.shadowOffsetX}, ${ctaStyle.shadowOffsetY})
-- Shadow Color: ${ctaStyle.shadowColor}
+- Font: ${cStyle.fontWeight}, ${cStyle.fontSize}px
+- Color: ${cStyle.color}
+- Shadow: blur ${cStyle.shadowBlur}px, offset (${cStyle.shadowOffsetX}, ${cStyle.shadowOffsetY})
+- Shadow Color: ${cStyle.shadowColor}
 - Position: Bottom of overlay area
 - Style: Professional, clean sans-serif
 
@@ -129,7 +172,6 @@ REQUIREMENTS:
 
 // 🔧 Função para converter base64 para Buffer
 function base64ToBuffer(base64String: string): Buffer {
-  // Remover o prefixo data:image/...;base64,
   const base64Data = base64String.replace(/^data:image\/\w+;base64,/, "");
   return Buffer.from(base64Data, "base64");
 }
@@ -208,15 +250,15 @@ export async function POST(request: NextRequest) {
     let media;
     let isUploadedImage = false;
 
-    // 🔧 Construir prompt de refinamento com as configurações
+    // 🔧 Construir prompt de refinamento com as configurações (com valores padrão)
     const refinementPrompt = buildRefinementPrompt(
       title,
       price,
       cta,
-      titleStyle,
-      priceStyle,
-      ctaStyle,
-      overlayStyle
+      titleStyle || DEFAULT_TEXT_STYLE,
+      priceStyle || DEFAULT_PRICE_STYLE,
+      ctaStyle || DEFAULT_CTA_STYLE,
+      overlayStyle || DEFAULT_OVERLAY_STYLE
     );
 
     if (uploadedImage) {
@@ -224,25 +266,16 @@ export async function POST(request: NextRequest) {
       isUploadedImage = true;
 
       try {
-        // 🔧 Converter base64 para buffer
         const buffer = base64ToBuffer(uploadedImage);
         console.log(`📦 Tamanho original: ${buffer.length} bytes`);
 
-        // 🔧 Comprimir imagem
         const compressedBuffer = await compressImage(buffer);
-
-        // 🔧 Converter buffer para base64 para o Whisk
-        const base64Compressed = compressedBuffer.toString("base64");
-        const dataUrl = `data:image/jpeg;base64,${base64Compressed}`;
 
         console.log(`📤 Fazendo upload da imagem como Subject...`);
         const uploadedRef = await project.addSubject({ file: uploadedImage });
         console.log(`✅ Imagem enviada com sucesso`);
-        console.log(`📝 Prompt detectado: ${uploadedRef.prompt}`);
 
-        console.log(`🎨 Gerando imagem com referência (mantendo original)...`);
-        console.log(`📐 Aspect Ratio a usar: ${aspectRatio || "IMAGE_ASPECT_RATIO_LANDSCAPE"}`);
-
+        console.log(`🎨 Gerando imagem com referência...`);
         media = await project.generateImageWithReferences({
           prompt: refinementPrompt,
           aspectRatio: aspectRatio || "IMAGE_ASPECT_RATIO_LANDSCAPE",
@@ -254,7 +287,6 @@ export async function POST(request: NextRequest) {
         throw uploadError;
       }
     } else {
-      // 🔧 Gerar nova imagem
       if (!prompt || prompt.trim().length === 0) {
         return NextResponse.json(
           { error: "❌ Descrição é obrigatória" },
@@ -263,44 +295,31 @@ export async function POST(request: NextRequest) {
       }
 
       console.log(`🎨 Gerando imagem com IA...`);
-      console.log(`📐 Aspect Ratio: ${aspectRatio || "IMAGE_ASPECT_RATIO_LANDSCAPE"}`);
-
       media = await project.generateImage({
         prompt: prompt,
         aspectRatio: aspectRatio || "IMAGE_ASPECT_RATIO_LANDSCAPE",
       });
-      console.log(`✅ Imagem gerada pela API`);
 
       console.log(`🎨 Refinando imagem com texto...`);
       media = await media.refine(refinementPrompt);
-      console.log(`✅ Imagem refinada com sucesso`);
     }
 
-    // 🔧 NOVO: Usar media.encodedMedia ao invés de media.save()
     console.log(`📦 Extraindo imagem em memória...`);
-    
-    // 🔧 Obter a imagem como base64 do Whisk
     const encodedImage = media.encodedMedia;
     if (!encodedImage) {
       throw new Error("❌ Não foi possível obter a imagem do Whisk");
     }
 
-    // 🔧 Converter base64 para buffer
     const imageBuffer = base64ToBuffer(encodedImage);
     console.log(`✅ Imagem extraída: ${imageBuffer.length} bytes`);
 
-    // 🔧 Comprimir antes de fazer upload
     const compressedBuffer = await compressImage(imageBuffer);
-
-    // 🔧 Gerar nome do arquivo
     const filename = `img_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
 
-    // 🔧 Upload para Supabase Storage
     const publicUrl = await uploadToSupabase(compressedBuffer, filename);
 
     console.log(`✅ Processamento concluído com sucesso`);
 
-    // 🔧 Retornar resposta JSON válida
     const response = {
       success: true,
       message: isUploadedImage
@@ -318,7 +337,6 @@ export async function POST(request: NextRequest) {
     const errorMessage = error instanceof Error ? error.message : "Erro desconhecido";
     const errorDetails = error instanceof Error ? error.stack : "";
 
-    // 🔧 Retornar erro JSON válido
     const errorResponse = {
       success: false,
       error: `❌ Erro: ${errorMessage}`,
