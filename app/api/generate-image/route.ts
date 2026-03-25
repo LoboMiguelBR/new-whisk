@@ -1,8 +1,6 @@
 import { Whisk } from "@rohitaryal/whisk-api";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import fs from "fs";
-import path from "path";
 import sharp from "sharp";
 
 // Inicializar Supabase
@@ -129,9 +127,14 @@ REQUIREMENTS:
   `.trim();
 }
 
-export async function POST(request: NextRequest) {
-  let tempFilePath: string | null = null;
+// 🔧 Função para converter base64 para Buffer
+function base64ToBuffer(base64String: string): Buffer {
+  // Remover o prefixo data:image/...;base64,
+  const base64Data = base64String.replace(/^data:image\/\w+;base64,/, "");
+  return Buffer.from(base64Data, "base64");
+}
 
+export async function POST(request: NextRequest) {
   try {
     // 🔧 Validar Content-Type
     const contentType = request.headers.get("content-type");
@@ -222,20 +225,18 @@ export async function POST(request: NextRequest) {
 
       try {
         // 🔧 Converter base64 para buffer
-        const base64Data = uploadedImage.replace(/^data:image\/\w+;base64,/, "");
-        const buffer = Buffer.from(base64Data, "base64");
-
+        const buffer = base64ToBuffer(uploadedImage);
         console.log(`📦 Tamanho original: ${buffer.length} bytes`);
 
         // 🔧 Comprimir imagem
         const compressedBuffer = await compressImage(buffer);
 
-        // 🔧 Salvar em memória (não em disco)
-        tempFilePath = `/tmp/temp-${Date.now()}.png`;
-        fs.writeFileSync(tempFilePath, compressedBuffer);
+        // 🔧 Converter buffer para base64 para o Whisk
+        const base64Compressed = compressedBuffer.toString("base64");
+        const dataUrl = `data:image/jpeg;base64,${base64Compressed}`;
 
         console.log(`📤 Fazendo upload da imagem como Subject...`);
-        const uploadedRef = await project.addSubject({ file: tempFilePath });
+        const uploadedRef = await project.addSubject({ file: uploadedImage });
         console.log(`✅ Imagem enviada com sucesso`);
         console.log(`📝 Prompt detectado: ${uploadedRef.prompt}`);
 
@@ -275,28 +276,27 @@ export async function POST(request: NextRequest) {
       console.log(`✅ Imagem refinada com sucesso`);
     }
 
-    // 🔧 Salvar em memória e fazer upload para Supabase
-    const tempDir = "/tmp";
-    const savedFilePath = media.save(tempDir);
-    console.log(`✅ Arquivo salvo em: ${savedFilePath}`);
+    // 🔧 NOVO: Usar media.encodedMedia ao invés de media.save()
+    console.log(`📦 Extraindo imagem em memória...`);
+    
+    // 🔧 Obter a imagem como base64 do Whisk
+    const encodedImage = media.encodedMedia;
+    if (!encodedImage) {
+      throw new Error("❌ Não foi possível obter a imagem do Whisk");
+    }
 
-    // 🔧 Ler arquivo
-    const fileBuffer = fs.readFileSync(savedFilePath);
-    const filename = path.basename(savedFilePath);
+    // 🔧 Converter base64 para buffer
+    const imageBuffer = base64ToBuffer(encodedImage);
+    console.log(`✅ Imagem extraída: ${imageBuffer.length} bytes`);
 
     // 🔧 Comprimir antes de fazer upload
-    const compressedBuffer = await compressImage(fileBuffer);
+    const compressedBuffer = await compressImage(imageBuffer);
+
+    // 🔧 Gerar nome do arquivo
+    const filename = `img_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
 
     // 🔧 Upload para Supabase Storage
     const publicUrl = await uploadToSupabase(compressedBuffer, filename);
-
-    // 🔧 Limpar arquivos temporários
-    if (fs.existsSync(savedFilePath)) {
-      fs.unlinkSync(savedFilePath);
-    }
-    if (tempFilePath && fs.existsSync(tempFilePath)) {
-      fs.unlinkSync(tempFilePath);
-    }
 
     console.log(`✅ Processamento concluído com sucesso`);
 
@@ -317,15 +317,6 @@ export async function POST(request: NextRequest) {
 
     const errorMessage = error instanceof Error ? error.message : "Erro desconhecido";
     const errorDetails = error instanceof Error ? error.stack : "";
-
-    // 🔧 Limpar arquivos temporários em caso de erro
-    if (tempFilePath && fs.existsSync(tempFilePath)) {
-      try {
-        fs.unlinkSync(tempFilePath);
-      } catch (cleanupError) {
-        console.error("❌ Erro ao limpar arquivo temporário:", cleanupError);
-      }
-    }
 
     // 🔧 Retornar erro JSON válido
     const errorResponse = {
