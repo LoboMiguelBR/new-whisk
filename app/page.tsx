@@ -132,42 +132,46 @@ REQUIREMENTS:
     `.trim();
   };
 
-  const handleGenerate = async () => {
-    setLoading(true);
-    setError(null);
-    setMessage(null);
-    setFinalImage(null);
+const handleGenerate = async () => {
+  setLoading(true);
+  setError(null);
+  setMessage(null);
+  setFinalImage(null);
 
-    try {
-      const response = await fetch("/api/generate-image", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt: useUpload ? "" : prompt,
-          aspectRatio,
-          title,
-          price,
-          cta,
-          uploadedImage: useUpload ? uploadedImage : null,
-          refinementPrompt: buildRefinementPrompt(),
-        }),
-      });
+  try {
+    const response = await fetch("/api/generate-image", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt: useUpload ? "" : prompt,
+        aspectRatio,
+        title,
+        price,
+        cta,
+        uploadedImage: useUpload ? uploadedImage : null,
+        // 🔧 ADICIONAR: Enviar as configurações de estilo
+        titleStyle,
+        priceStyle,
+        ctaStyle,
+        overlayStyle,
+      }),
+    });
 
-      const data = await response.json();
+    const data = await response.json();
 
-      if (!response.ok) {
-        throw new Error(data.error || "Erro desconhecido na API.");
-      }
-
-      setMessage(data.message);
-      setFinalImage(data.imageUrl);
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "Erro desconhecido.";
-      setError(errorMsg);
-    } finally {
-      setLoading(false);
+    if (!response.ok) {
+      throw new Error(data.error || "Erro desconhecido na API.");
     }
-  };
+
+    setMessage(data.message);
+    setFinalImage(data.imageUrl);
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : "Erro desconhecido.";
+    setError(errorMsg);
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-blue-600 to-purple-700 p-8">
